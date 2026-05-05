@@ -74,7 +74,9 @@ def parse_date(text: str) -> "datetime | None":
             return None
 
     # EXIF native: YYYY:MM:DD HH:MM:SS  or  YYYY:MM:DD
-    for fmt in ('%Y:%m:%d %H:%M:%S', '%Y:%m:%d'):
+    # ISO 8601:   YYYY-MM-DD HH:MM:SS  or  YYYY-MM-DD
+    for fmt in ('%Y:%m:%d %H:%M:%S', '%Y:%m:%d',
+                '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
         try:
             return datetime.strptime(text, fmt)
         except ValueError:
