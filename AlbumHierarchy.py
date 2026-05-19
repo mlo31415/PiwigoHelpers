@@ -91,7 +91,12 @@ def _file_index_file() -> Path:
 # Parameters
 # ---------------------------------------------------------------------------
 def load_params() -> dict[str, Any]:
-    """Load Piwigo connection parameters from the params file."""
+    """Load Piwigo connection parameters from the params file.
+
+    If a 'Piwigo Credentials.json' exists alongside the params file (i.e. the
+    app has migrated to the CredentialStore layout), credential keys from that
+    file are merged in so callers always receive a complete parameter dict.
+    """
     if not PARAMS_FILE.exists():
         raise FileNotFoundError(
             f"Parameters file not found: {PARAMS_FILE}\n\n"
@@ -111,6 +116,17 @@ def load_params() -> dict[str, Any]:
         )
     with open(PARAMS_FILE) as f:
         params = json.load(f)
+    # Merge credentials from the dedicated credentials file when present,
+    # so callers work correctly after CredentialStore has stripped those keys
+    # from the params file.
+    creds_file = PARAMS_FILE.parent / "Piwigo Credentials.json"
+    if creds_file.exists():
+        try:
+            creds = json.loads(creds_file.read_text(encoding="utf-8"))
+            _CRED_KEYS = ("url", "username", "password", "verify_ssl")
+            params.update({k: v for k, v in creds.items() if k in _CRED_KEYS})
+        except Exception:
+            pass
     missing = [k for k in REQUIRED_PARAMS if not params.get(k)]
     if missing:
         raise ValueError(
