@@ -56,7 +56,7 @@ def opencv_restore(pil_img, exposure: float, contrast: float,
     if sharpen > 0 and CV2_AVAILABLE:
         t       = sharpen / 100.0
         sigma   = 1.0 + t * 2.0
-        amount  = t * 1.5
+        amount  = t * 3.0
         u8      = img.astype(_np.uint8)
         blurred = cv2.GaussianBlur(u8, (0, 0), sigma)
         img     = cv2.addWeighted(u8, 1.0 + amount, blurred, -amount, 0).astype(_np.float32)
