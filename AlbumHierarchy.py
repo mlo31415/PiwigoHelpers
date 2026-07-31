@@ -139,6 +139,20 @@ def load_params() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Piwigo API client
 # ---------------------------------------------------------------------------
+# A non-JSON / error-page response from the Piwigo server (e.g. PHP warnings emitted when its MySQL
+# connection came back null). Treated as a retryable transient failure rather than a hard error.
+class _TransientServerError(Exception):
+    pass
+
+
+def _looks_like_db_error(body: str) -> bool:
+    # Heuristic: does an error-page body look like a Piwigo server-side database failure?
+    if not body:
+        return False
+    b = body.lower()
+    return "mysqli" in b or "on null" in b or "<b>warning</b>" in b
+
+
 class PiwigoClient:
     def __init__(self, base_url: str, username: str, password: str,
                  verify_ssl: bool = True, rate_limit_calls_per_second: float = 2.0):
@@ -181,6 +195,7 @@ class PiwigoClient:
         max_retries = 3
         retry_count = 0
         last_error = None
+        last_body = None
 
         while retry_count < max_retries:
             try:
@@ -195,24 +210,33 @@ class PiwigoClient:
                 try:
                     data = r.json()
                 except ValueError:
-                    preview = r.text[:300].strip() if r.text else "(empty)"
-                    raise RuntimeError(
-                        f"Server did not return valid JSON for '{method}'.\n"
-                        f"URL: {self.api_url}\n"
-                        f"HTTP status: {r.status_code}\n"
-                        f"Response: {preview}"
-                    )
+                    # Not JSON -> almost always a transient server-side hiccup (e.g. Piwigo emitting PHP
+                    # warnings because its MySQL connection came back null). Treat it as a retryable failure.
+                    last_body = r.text[:300].strip() if r.text else "(empty)"
+                    raise _TransientServerError()
                 if data.get("stat") != "ok":
                     raise RuntimeError(data.get("message", "Unknown Piwigo API error"))
                 return data.get("result", {})
-            except (requests.Timeout, requests.ConnectTimeout, requests.ReadTimeout) as e:
+            except (requests.Timeout, requests.ConnectTimeout, requests.ReadTimeout, _TransientServerError) as e:
                 retry_count += 1
                 last_error = e
                 if retry_count < max_retries:
                     wait_time = 2 ** retry_count  # exponential backoff: 2s, 4s, 8s
-                    logger.debug(f"API timeout (attempt {retry_count}/{max_retries}). "
+                    logger.debug(f"Piwigo '{method}' failed transiently (attempt {retry_count}/{max_retries}). "
                                 f"Retrying in {wait_time}s...")
                     time.sleep(wait_time)
+                elif isinstance(e, _TransientServerError):
+                    friendly=("Its database appears to be temporarily unavailable -- a server-side hiccup, "
+                              "not a problem with your login or your connection.\n\n"
+                              if _looks_like_db_error(last_body) else "")
+                    raise RuntimeError(
+                        f"The photo server returned an error instead of data for '{method}' after "
+                        f"{max_retries} attempts.\n\n"
+                        f"{friendly}"
+                        f"Please wait a little and try again.\n\n"
+                        f"URL: {self.api_url}\n"
+                        f"Server said: {last_body or '(empty)'}"
+                    )
                 else:
                     raise RuntimeError(
                         f"Connection to Piwigo server timed out after {max_retries} attempts.\n\n"
