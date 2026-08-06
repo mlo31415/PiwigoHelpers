@@ -63,6 +63,9 @@ class AlbumTreeWidget:
         # Optional drag-start callback: (album_id, fullname, x_root, y_root) -> None
         # Set externally after construction (e.g. by PhotosEditor).
         self._on_album_drag_start:  "callable | None" = None
+        # Optional RMB-menu extension hook: (menu, album_id, node) -> None
+        # Set externally after construction to append app-specific menu items.
+        self._extend_rmb_menu:      "callable | None" = None
         self._atw_press_pos:        "tuple | None"    = None
         self._atw_press_iid:        "str | None"      = None
 
@@ -246,6 +249,8 @@ class AlbumTreeWidget:
             label=f"Delete \"{short}\"",
             command=lambda: self.root.after(50, lambda: self._do_delete(iid)),
             state='normal' if is_empty else 'disabled')
+        if self._extend_rmb_menu is not None:
+            self._extend_rmb_menu(menu, int(iid), node)
         menu.tk_popup(event.x_root, event.y_root)
 
     # ── Add sub-album ─────────────────────────────────────────────────────────
