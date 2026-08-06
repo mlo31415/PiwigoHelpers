@@ -45,14 +45,18 @@ class AlbumTreeWidget:
                               action is "add", "rename", or "delete"
     set_status    callable    (msg: str) → None  (optional, no-op if omitted)
     focus_filter  bool        focus the filter Entry immediately (default False)
+    selectmode    str         Treeview selectmode: 'browse' (default, single) or
+                              'extended' (ctrl/shift multi-select)
     """
 
     def __init__(self, parent: tk.Widget, root: tk.Tk,
                  on_select, on_mutation,
                  set_status=None, focus_filter: bool = False,
                  select_delay_ms: int = 0,
-                 on_selection_changing=None):
+                 on_selection_changing=None,
+                 selectmode: str = 'browse'):
         self.root                    = root
+        self._selectmode             = selectmode
         self._on_select              = on_select
         self._on_mut                 = on_mutation
         self._set_status             = set_status or (lambda msg: None)
@@ -95,7 +99,7 @@ class AlbumTreeWidget:
         tree_frame.pack(fill='both', expand=True)
         yscroll = ttk.Scrollbar(tree_frame, orient='vertical')
         xscroll = ttk.Scrollbar(tree_frame, orient='horizontal')
-        self.tree = ttk.Treeview(tree_frame, selectmode='browse', show='tree',
+        self.tree = ttk.Treeview(tree_frame, selectmode=self._selectmode, show='tree',
                                  yscrollcommand=yscroll.set,
                                  xscrollcommand=xscroll.set)
         yscroll.config(command=self.tree.yview)
