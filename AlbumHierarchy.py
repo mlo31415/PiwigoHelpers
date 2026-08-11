@@ -286,6 +286,28 @@ class PiwigoClient:
         result = self._call("pwg.tags.getList", {})
         return result.get("tags", [])
 
+    def get_tag_image_ids(self, tag_id: int, per_page: int = 500) -> set[int]:
+        """Return the ids of every image carrying the given tag, handling
+        pagination automatically.  (pwg.categories.getImages does not report
+        tags, so this is the way to find an album's tagged photos: fetch the
+        tag's image ids once and intersect them with the album's image list.)"""
+        ids: set[int] = set()
+        page = 0
+        while True:
+            result = self._call("pwg.tags.getImages", {
+                "tag_id[]":  tag_id,
+                "per_page":  per_page,
+                "page":      page,
+            })
+            batch = result.get("images", [])
+            ids.update(int(i["id"]) for i in batch if i.get("id") is not None)
+            paging = result.get("paging", {})
+            total  = int(paging.get("total_count", len(ids)))
+            if len(ids) >= total or not batch:
+                break
+            page += 1
+        return ids
+
     def rename_album(self, cat_id: int, new_name: str) -> None:
         """Rename an existing album."""
         self._call("pwg.categories.setInfo", {"category_id": cat_id, "name": new_name})
