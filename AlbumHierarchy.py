@@ -470,6 +470,53 @@ class PiwigoClient:
         if len(params) > 1:
             self._call("pwg.images.setInfo", params)
 
+    def add_tag(self, name: str) -> int:
+        """Create a tag and return its id; returns the existing id if Piwigo
+        reports the name is already taken."""
+        try:
+            result = self._call("pwg.tags.add", {"name": name})
+            return int(result.get("id"))
+        except Exception:
+            # Piwigo answers an already-existing name with an error carrying no
+            # id, so look it up instead
+            for t in self.get_tags():
+                if t.get("name") == name:
+                    return int(t["id"])
+            raise
+
+    def resolve_tag_ids(self, names: list[str]) -> list[int]:
+        """Tag ids for these tag names, creating any that do not exist yet."""
+        if not names:
+            return []
+        by_name = {t.get("name"): int(t["id"]) for t in self.get_tags()}
+        ids = []
+        for name in names:
+            tid = by_name.get(name)
+            if tid is None:
+                tid = self.add_tag(name)
+            ids.append(tid)
+        return ids
+
+    def set_image_info(self, image_id: int, *, author=None, comment=None,
+                       date_creation=None, tag_ids=None) -> None:
+        """Set metadata on an existing image without touching its image file.
+
+        Differs from set_image_metadata in two ways that matter when the user is
+        editing rather than repairing: "" is written through, so a field can be
+        cleared, and None means "leave this one alone"; and both value modes are
+        "replace", so an existing caption really is replaced and a removed tag
+        really is removed.  Tags are given as ids -- see resolve_tag_ids.
+        """
+        params: dict = {"image_id": image_id,
+                        "single_value_mode":   "replace",
+                        "multiple_value_mode": "replace"}
+        if author        is not None: params["author"]        = author
+        if comment       is not None: params["comment"]       = comment
+        if date_creation is not None: params["date_creation"] = date_creation
+        if tag_ids       is not None: params["tag_ids"] = ",".join(str(t) for t in tag_ids)
+        if len(params) > 3:
+            self._call("pwg.images.setInfo", params)
+
     def set_image_categories(self, image_id: int, category_ids: list[int]) -> None:
         """Replace all category associations for an image."""
         cats = ";".join(str(c) for c in category_ids)
