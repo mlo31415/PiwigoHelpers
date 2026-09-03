@@ -95,6 +95,25 @@ class CredentialStore:
         except Exception:
             return {}
 
+    def set_op_param(self, key: str, value) -> bool:
+        """Set one operational setting in the params file, keeping the rest.
+
+        Reads the file as it stands rather than writing back a dict from
+        load_op_params, so nothing else in it is disturbed.  Returns True if the
+        new value reached the disk: a caller that has just promised the user
+        their choice will be remembered needs to know when it was not.
+        """
+        try:
+            data = {}
+            if self._params_file.exists():
+                data = json.loads(self._params_file.read_text(encoding="utf-8"))
+            data[key] = value
+            self._params_file.write_text(
+                json.dumps(data, indent=2), encoding="utf-8")
+            return True
+        except Exception:
+            return False
+
     def save_credentials(self, creds: dict) -> None:
         """Write *creds* to the credentials file (best-effort; silent on failure)."""
         try:
