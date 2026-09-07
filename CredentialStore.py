@@ -48,6 +48,18 @@ class CredentialStore:
 
     # ── public ────────────────────────────────────────────────────────────────
 
+    @property
+    def params_file(self) -> Path:
+        """Where the operational settings are kept.  For showing a user which
+        file a program is actually reading."""
+        return self._params_file
+
+    @property
+    def credentials_file(self) -> Path:
+        """Where the credentials are kept.  The path only -- a program may say
+        where they live, but must not put their contents on screen."""
+        return self._creds_file
+
     def load_credentials(self) -> dict:
         """Return the credential dict.
 
