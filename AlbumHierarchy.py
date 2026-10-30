@@ -21,6 +21,7 @@ Public API
 """
 
 import os
+import re
 import sys
 import json
 import time
@@ -153,6 +154,48 @@ def _looks_like_db_error(body: str) -> bool:
     return "mysqli" in b or "on null" in b or "<b>warning</b>" in b
 
 
+def _explain_refusal(status: int, body: str, what: str) -> str:
+    """Why the server said no to `what`, in words someone can act on.
+
+    The reply is read before anything else is decided, because it is the only
+    thing that says *who* refused.  An answer in Piwigo's own JSON means Piwigo
+    looked at the request and turned it down; an HTML page means something in
+    front of Piwigo -- a security filter, an .htaccess rule -- stopped it first,
+    and nothing the program does differently will get it through.  The two need
+    entirely different responses, and "403 Client Error: Forbidden" says neither.
+    """
+    try:
+        reply = json.loads(body or "")
+    except ValueError:
+        reply = None
+    if isinstance(reply, dict) and reply.get("stat") == "fail":
+        said = reply.get("message") or "no reason given"
+        if status == 401 or reply.get("err") == 401:
+            return (f"Piwigo refused {what}: {said}.\n\nThe account in "
+                    "Piwigo Credentials.json is not logged in, or is not an "
+                    "administrator.")
+        return f"Piwigo refused {what} (HTTP {status}): {said}."
+
+    if status == 403:
+        return (f"The server refused {what} before it reached Piwigo "
+                f"(HTTP 403).\n\nThis is a setting on the server, not this "
+                "program: something in front of Piwigo -- a security filter "
+                "such as ModSecurity, or a rule in .htaccess -- is blocking the "
+                "request.  Trying again will not help; whoever looks after the "
+                "server needs to know.")
+    if status == 413:
+        return (f"The server refused {what} as too large (HTTP 413).  Its "
+                "upload limit is smaller than this file.")
+    if status >= 500:
+        return (f"The server failed while handling {what} (HTTP {status}).  "
+                "This is often temporary; try again in a few minutes.")
+
+    # Anything else: say what the server said, without its markup
+    words = " ".join(re.sub(r"<[^>]+>", " ", body or "").split())
+    return (f"The server refused {what} (HTTP {status})."
+            + (f"\n\nIt said: {words[:200]}" if words else ""))
+
+
 class PiwigoClient:
     def __init__(self, base_url: str, username: str, password: str,
                  verify_ssl: bool = True, rate_limit_calls_per_second: float = 2.0):
@@ -206,7 +249,9 @@ class PiwigoClient:
                     if not self._verify_ssl:
                         warnings.simplefilter("ignore", urllib3.exceptions.InsecureRequestWarning)
                     r = self.session.post(self.api_url, data=payload, timeout=30)
-                r.raise_for_status()
+                if r.status_code >= 400:
+                    raise RuntimeError(_explain_refusal(
+                        r.status_code, r.text, f"the {method} request"))
                 try:
                     data = r.json()
                 except ValueError:
@@ -378,7 +423,9 @@ class PiwigoClient:
                             files={'image': (filename, fh, mimetypes.guess_type(filename)[0] or 'image/jpeg')},
                             timeout=120,
                         )
-                        r.raise_for_status()
+                        if r.status_code >= 400:
+                            raise RuntimeError(_explain_refusal(
+                                r.status_code, r.text, "the upload"))
                         try:
                             resp = r.json()
                         except ValueError:
