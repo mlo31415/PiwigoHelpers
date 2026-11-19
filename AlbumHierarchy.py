@@ -1,22 +1,22 @@
 """
 AlbumHierarchy.py
 Connects to a Piwigo instance, downloads the full album hierarchy, writes
-it to AlbumHierarchy.json, and shows a modal progress dialog while working.
+it to Piwigo AlbumHierarchy.json, and shows a modal progress dialog while working.
 
 Public API
 ----------
     run(parent, set_status_cb)
-        Download album hierarchy → AlbumHierarchy.json.
+        Download album hierarchy → Piwigo AlbumHierarchy.json.
 
     add_album(parent, set_status_cb)
-        Create a new album on the server and refresh AlbumHierarchy.json.
+        Create a new album on the server and refresh Piwigo AlbumHierarchy.json.
 
     pick_album(parent, set_status_cb, on_select_cb)
         Show a tree-picker dialog; calls on_select_cb(album_id, fullname).
 
     download_file_index(parent, set_status_cb)
         Optional: walk every album, build filename → [album fullname, …]
-        and write FileDict.json.  Useful for detecting duplicates before
+        and write Piwigo FileIndex.json.  Useful for detecting duplicates before
         uploading.
 """
 
@@ -75,16 +75,41 @@ REQUIRED_PARAMS = ("url", "username", "password")
 
 
 def _data_dir() -> Path:
-    """Directory that holds AlbumHierarchy.json etc. — same folder as PARAMS_FILE."""
+    """Directory that holds Piwigo AlbumHierarchy.json etc. — same folder as PARAMS_FILE."""
     return PARAMS_FILE.parent
 
 
+# The shared copies of what is on the server.  They are not any one program's,
+# so they are named like "Piwigo Credentials.json", not "<Program> ... .json",
+# and the three sort together.  Until 2026-11 they were AlbumHierarchy.json and
+# FileDict.json: one still under its old name is renamed the first time it is
+# looked for, so that no copy -- here, beside an exe, on the show computer --
+# is lost, and with it the file index, which takes a walk of every album on
+# the server to rebuild.
+_ALBUM_HIERARCHY_NAME = "Piwigo AlbumHierarchy.json"
+_FILE_INDEX_NAME      = "Piwigo FileIndex.json"
+_OLD_NAMES = {_ALBUM_HIERARCHY_NAME: "AlbumHierarchy.json",
+              _FILE_INDEX_NAME:      "FileDict.json"}
+
+
+def _shared_file(name: str) -> Path:
+    path = _data_dir() / name
+    old = _data_dir() / _OLD_NAMES[name]
+    if not path.exists() and old.exists():
+        try:
+            old.rename(path)
+        except OSError as e:
+            logger.warning(f"Could not rename {old.name} to {name}: {e}")
+            return old                  # go on using it under its old name
+    return path
+
+
 def _album_hierarchy_file() -> Path:
-    return _data_dir() / "AlbumHierarchy.json"
+    return _shared_file(_ALBUM_HIERARCHY_NAME)
 
 
 def _file_index_file() -> Path:
-    return _data_dir() / "FileDict.json"
+    return _shared_file(_FILE_INDEX_NAME)
 
 
 
@@ -689,7 +714,7 @@ def _fetch_and_save_hierarchy(client: PiwigoClient, step_cb) -> int:
 # ---------------------------------------------------------------------------
 def _fetch_and_save_file_index(client: PiwigoClient, flat_albums: list,
                                progress_cb, cancel_flag: list | None = None) -> dict[str, list[dict]]:
-    """Walk every album, collect filenames, and write FileDict.json.
+    """Walk every album, collect filenames, and write Piwigo FileIndex.json.
 
     progress_cb(done: int, total: int, album_name: str) is called after each
     album is processed.  It must be safe to call from a background thread.
@@ -744,7 +769,7 @@ def _fetch_and_save_file_index(client: PiwigoClient, flat_albums: list,
 # Public entry points
 # ---------------------------------------------------------------------------
 def run(parent: tk.Widget, set_status_cb):
-    """Download album hierarchy and write AlbumHierarchy.json.
+    """Download album hierarchy and write Piwigo AlbumHierarchy.json.
 
     Opens a modal progress dialog on *parent*.  Calls set_status_cb(str)
     to update the caller's status bar at each step and on completion.
@@ -829,7 +854,7 @@ def add_album(parent: tk.Widget, set_status_cb, on_created_cb=None):
 
     The user selects an optional parent from the existing album tree (leave
     nothing selected to create a top-level album), enters a name, and clicks
-    Create.  The album is added via the API and AlbumHierarchy.json is
+    Create.  The album is added via the API and Piwigo AlbumHierarchy.json is
     refreshed afterwards.
     """
 
@@ -1067,7 +1092,7 @@ def add_album(parent: tk.Widget, set_status_cb, on_created_cb=None):
 # Album picker
 # ---------------------------------------------------------------------------
 def _hierarchy_is_fresh() -> bool:
-    """Return True if AlbumHierarchy.json exists and is less than 24 hours old."""
+    """Return True if Piwigo AlbumHierarchy.json exists and is less than 24 hours old."""
     if not _album_hierarchy_file().exists():
         return False
     return (time.time() - _album_hierarchy_file().stat().st_mtime) < 86400
@@ -1387,11 +1412,11 @@ def _show_picker_dialog(parent: tk.Widget, hierarchy: list, on_select_cb,
 def download_file_index(parent: tk.Widget, set_status_cb):
     """Walk every album on the server and build a filename → album-path index.
 
-    The result is written to FileDict.json as:
+    The result is written to Piwigo FileIndex.json as:
         { "photo.jpg": ["Album / SubAlbum", "Other Album"], … }
 
     A determinate progress dialog shows one row per album processed.
-    If AlbumHierarchy.json is missing or stale the hierarchy is refreshed
+    If Piwigo AlbumHierarchy.json is missing or stale the hierarchy is refreshed
     first (re-uses the same credentials and session).
     """
 
@@ -1504,7 +1529,7 @@ def download_file_index(parent: tk.Widget, set_status_cb):
 # ---------------------------------------------------------------------------
 def record_uploaded_file(filename: str, album_fullname: str,
                          album_id: int = 0, file_id: int = 0):
-    """Add filename → entry to FileDict.json after a successful upload.
+    """Add filename → entry to Piwigo FileIndex.json after a successful upload.
 
     Each entry is {"fullname": str, "album_id": int, "file_id": int}.
     Loads the existing index if present, appends the new entry (avoiding
